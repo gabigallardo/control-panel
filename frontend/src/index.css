@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background-color: #2B3E4C;
+  color: #FCF2DC;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Glassmorphism Card ─────────────────────────────────────────────── */
+.glass-card {
+  background: linear-gradient(135deg,
+      rgba(35, 51, 67, 0.7) 0%,
+      rgba(43, 62, 76, 0.5) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(244, 223, 185, 0.07);
+  border-radius: 1rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(244, 223, 185, 0.15);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(244, 223, 185, 0.05);
+}
+
+/* ── Glow Border ────────────────────────────────────────────────────── */
+.glow-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.glow-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg,
+      rgba(135, 184, 103, 0.25),
+      transparent 40%,
+      transparent 60%,
+      rgba(244, 223, 185, 0.12));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.glow-border:hover::before {
+  opacity: 1;
+}
+
+/* ── Shimmer Skeleton ───────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(35, 51, 67, 0.5);
+  border-radius: 1rem;
+}
+
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(244, 223, 185, 0.05) 50%,
+      transparent 100%);
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* ── Custom Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #131D25;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3E5E70;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5A7A8E;
+}
+
+/* ── LED Pulse Animations ───────────────────────────────────────────── */
+@keyframes pulse-neon {
+
+  0%,
+  100% {
+    box-shadow: 0 0 4px #87B867, 0 0 8px #87B867;
+    opacity: 1;
+  }
+
+  50% {
+    box-shadow: 0 0 8px #87B867, 0 0 16px #87B867;
+    opacity: 0.85;
+  }
+}
+
+.led-pulse {
+  animation: pulse-neon 2s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+
+  0%,
+  100% {
+    box-shadow: 0 0 4px #f87171, 0 0 8px #f87171;
+    opacity: 1;
+  }
+
+  50% {
+    box-shadow: 0 0 8px #f87171, 0 0 16px #f87171;
+    opacity: 0.85;
+  }
+}
+
+.led-pulse-red {
+  animation: pulse-red 2s ease-in-out infinite;
+}
+
+/* ── Subtle Background Pattern ──────────────────────────────────────── */
+.bg-grid-pattern {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(163, 183, 196, 0.04) 1px, transparent 0);
+  background-size: 32px 32px;
+}
