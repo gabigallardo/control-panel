@@ -5,6 +5,33 @@ import type { TokenDataPoint, DateRangeKey, OpenAiBillingData, ModelUsage } from
 import type { DateRangeOption } from '@shared/types/dateRange';
 import { DATE_RANGE_OPTIONS } from '@shared/types/dateRange';
 
+// ── Constants ──────────────────────────────────────────────────────────
+
+const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+    // GPT-4o
+    'gpt-4o': { input: 2.50, output: 10.00 }, // $2.50 / $10.00 per 1M (Updated Aug 2024)
+    'gpt-4o-2024-05-13': { input: 5.00, output: 15.00 },
+    'gpt-4o-2024-08-06': { input: 2.50, output: 10.00 },
+
+    // GPT-4o-mini
+    'gpt-4o-mini': { input: 0.15, output: 0.60 },
+    'gpt-4o-mini-2024-07-18': { input: 0.15, output: 0.60 },
+
+    // GPT-4 Turbo
+    'gpt-4-turbo': { input: 10.00, output: 30.00 },
+    'gpt-4-turbo-2024-04-09': { input: 10.00, output: 30.00 },
+    'gpt-4-0125-preview': { input: 10.00, output: 30.00 },
+    'gpt-4-1106-preview': { input: 10.00, output: 30.00 },
+
+    // GPT-3.5 Turbo
+    'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
+    'gpt-3.5-turbo-0125': { input: 0.50, output: 1.50 },
+    'gpt-3.5-turbo-1106': { input: 1.00, output: 2.00 },
+};
+
+// Default fallback price (approx gpt-3.5-turbo legacy)
+const DEFAULT_PRICE = { input: 0.50, output: 1.50 };
+
 // ── Config ─────────────────────────────────────────────────────────────
 
 const OPENAI_BASE = 'https://api.openai.com/v1/organization';
@@ -241,6 +268,7 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
         // ── Procesar uso de tokens por modelo ──
         const modelMap = new Map<string, ModelUsage>();
         const hourlyTokens = new Map<string, number>();
+        const hourlyCalculatedCosts = new Map<string, number>(); // Nuevo: costos horarios estimados
 
         if (usageResponse?.data) {
             for (const bucket of usageResponse.data) {
@@ -255,6 +283,12 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                         const outputTokens = result.output_tokens ?? 0;
                         const totalTokens = inputTokens + outputTokens;
 
+                        // Determinar precio del modelo
+                        const price = MODEL_PRICES[model] || MODEL_PRICES[model.replace(/-20\d{2}-\d{2}-\d{2}$/, '')] || DEFAULT_PRICE;
+
+                        // Calcular costo
+                        const cost = (inputTokens / 1_000_000 * price.input) + (outputTokens / 1_000_000 * price.output);
+
                         // Agregar al mapa por modelo
                         const existing = modelMap.get(model) || {
                             model,
@@ -266,10 +300,12 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                         existing.inputTokens += inputTokens;
                         existing.outputTokens += outputTokens;
                         existing.totalTokens += totalTokens;
+                        existing.cost += cost; // Acumular costo por modelo
                         modelMap.set(model, existing);
 
                         // Agregar al mapa horario
                         hourlyTokens.set(hourKey, (hourlyTokens.get(hourKey) || 0) + totalTokens);
+                        hourlyCalculatedCosts.set(hourKey, (hourlyCalculatedCosts.get(hourKey) || 0) + cost);
                     }
                 }
             }
@@ -279,11 +315,12 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
         const tokenHistory: TokenDataPoint[] = [];
 
         if (range === '24h') {
-            // Lógica HARCODED para 24h (00:00 a 23:00) - Mantener comportamiento actual
+            // Lógica para 24h: Usar costos calculados basados en modelos
             for (let h = 0; h < 24; h++) {
                 const hourKey = `${h.toString().padStart(2, '0')}:00`;
                 const tokens = hourlyTokens.get(hourKey) || 0;
-                const cost = parseFloat((tokens * 0.000003).toFixed(4)); // Estimado
+                // Usar costo calculado si existe, sino 0
+                const cost = parseFloat((hourlyCalculatedCosts.get(hourKey) || 0).toFixed(6));
                 tokenHistory.push({ hour: hourKey, tokens, cost });
             }
         } else {
@@ -322,11 +359,10 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                 // Si existe entrada pero cost es 0, queremos usar 0, no el fallback.
                 let realCost = (dailyCostEntry && typeof dailyCostEntry.cost === 'number')
                     ? dailyCostEntry.cost
-                    : (tokens * 0.000003);
+                    : 0; // Si no hay dato de costo real, asumimos 0 por ahora (o podríamos sumar costos estimados models)
 
-                if (typeof realCost !== 'number') {
-                    realCost = 0;
-                }
+                // Si costo real es 0 pero hay tokens, intentar usar estimado models (opcional, pero consistente con 24h)
+                // Para simplificar, en vista diaria preferimos el costo 'real' de la API de costos si está disponible.
 
                 tokenHistory.push({
                     hour: dayLabel,
@@ -342,20 +378,17 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
         );
 
         // ── Recalcular accumulatedCost basado en tokenHistory ──
-        // Esto asegura que si falta data en la API de costos (por ejemplo HOY),
-        // sumemos el estimado calculado arriba.
         const totalCalculatedCost = tokenHistory.reduce((acc, curr) => acc + curr.cost, 0);
 
         // Si el costo de la API es 0 (o mucho menor al calculado), usar el calculado.
-        // Esto arregla el "0" en las últimas 24hs y el "falta hoy" en 7d.
         const finalAccumulatedCost = (accumulatedCost === 0 || totalCalculatedCost > accumulatedCost)
             ? totalCalculatedCost
             : accumulatedCost;
 
-        console.log(`✅ OpenAI Billing: costoAPI=$${accumulatedCost.toFixed(2)}, costoCalc=$${totalCalculatedCost.toFixed(2)}, final=$${finalAccumulatedCost.toFixed(2)}`);
+        console.log(`✅ OpenAI Billing: costoAPI=$${accumulatedCost.toFixed(4)}, costoCalc=$${totalCalculatedCost.toFixed(4)}, final=$${finalAccumulatedCost.toFixed(4)}`);
 
         return {
-            accumulatedCost: parseFloat(finalAccumulatedCost.toFixed(2)),
+            accumulatedCost: parseFloat(finalAccumulatedCost.toFixed(4)),
             tokenHistory,
             modelDistribution,
         };
