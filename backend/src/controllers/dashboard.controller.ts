@@ -5,8 +5,8 @@ import {
     getQueryVolume,
     getNonConflictRate,
     getAgentHealth,
-    getMockTokenHistory,
-    getMockCostAndLatency,
+    getTokenHistory,
+    getCostAndLatency,
 } from '../services/dashboard.service';
 
 const VALID_RANGES: DateRangeKey[] = ['24h', '7d', '30d', 'all'];
@@ -27,8 +27,8 @@ export async function getDashboardMetrics(req: Request, res: Response): Promise<
                 getQueryVolume(range),
                 getNonConflictRate(range),
                 getAgentHealth(),
-                Promise.resolve(getMockTokenHistory()),       // Mock — sin OpenAI key
-                Promise.resolve(getMockCostAndLatency()),     // Mock — sin OpenAI key
+                getTokenHistory(range),         // Real OpenAI con fallback a mock
+                getCostAndLatency(range),        // Real OpenAI con fallback a mock
             ]);
 
         const metrics: DashboardMetrics = {
@@ -39,6 +39,7 @@ export async function getDashboardMetrics(req: Request, res: Response): Promise<
             averageLatency: costAndLatency.averageLatency,
             agents,
             tokenHistory,
+            modelDistribution: costAndLatency.modelDistribution,
         };
 
         res.json(metrics);
@@ -51,3 +52,4 @@ export async function getDashboardMetrics(req: Request, res: Response): Promise<
         });
     }
 }
+

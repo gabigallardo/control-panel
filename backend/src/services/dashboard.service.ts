@@ -1,12 +1,13 @@
 // ─── Dashboard Service ─────────────────────────────────────────────────
 // Híbrido: Supabase Client SDK (HTTPS) para métricas de negocio,
-//          Mock para consumo de tokens / costos (sin API Key de OpenAI).
+//          OpenAI Organization API para tokens/costos (con fallback a mock).
 
 import { getSupabaseClient } from '../config/supabase';
 import { env } from '../config/env';
-import type { AgentStatus, TokenDataPoint, DateRangeKey } from '@shared/types/dashboard';
+import type { AgentStatus, TokenDataPoint, DateRangeKey, ModelUsage } from '@shared/types/dashboard';
 import type { DateRangeOption } from '@shared/types/dateRange';
 import { DATE_RANGE_OPTIONS } from '@shared/types/dateRange';
+import { getOpenAiBillingData } from './openai.service';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -200,10 +201,46 @@ export async function getAgentHealth(): Promise<AgentStatus[]> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// PARTE MOCK — Tokens & Costos (sin API Key de OpenAI)
+// TOKENS & COSTOS — Real OpenAI con fallback a Mock
 // ═══════════════════════════════════════════════════════════════════════
 
-export function getMockTokenHistory(): TokenDataPoint[] {
+/**
+ * Obtiene historial de tokens. Intenta datos reales de OpenAI primero.
+ */
+export async function getTokenHistory(range: DateRangeKey): Promise<TokenDataPoint[]> {
+    try {
+        const billing = await getOpenAiBillingData(range);
+        if (billing) return billing.tokenHistory;
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('❌ getTokenHistory real error, using mock:', msg);
+    }
+    return getMockTokenHistory();
+}
+
+/**
+ * Obtiene costo acumulado y latencia. Intenta datos reales de OpenAI primero.
+ */
+export async function getCostAndLatency(range: DateRangeKey): Promise<{ accumulatedCost: number; averageLatency: number; modelDistribution?: ModelUsage[] }> {
+    try {
+        const billing = await getOpenAiBillingData(range);
+        if (billing) {
+            return {
+                accumulatedCost: billing.accumulatedCost,
+                averageLatency: parseFloat((1.1 + Math.random() * 0.7).toFixed(1)), // latencia sigue siendo estimada
+                modelDistribution: billing.modelDistribution,
+            };
+        }
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('❌ getCostAndLatency real error, using mock:', msg);
+    }
+    return getMockCostAndLatency();
+}
+
+// ── Mock helpers ────────────────────────────────────────────────────────
+
+function getMockTokenHistory(): TokenDataPoint[] {
     const points: TokenDataPoint[] = [];
     let base = 800;
     for (let h = 0; h < 24; h++) {
@@ -221,7 +258,7 @@ export function getMockTokenHistory(): TokenDataPoint[] {
     return points;
 }
 
-export function getMockCostAndLatency(): { accumulatedCost: number; averageLatency: number } {
+function getMockCostAndLatency(): { accumulatedCost: number; averageLatency: number } {
     return {
         accumulatedCost: parseFloat((3800 + Math.random() * 800).toFixed(2)),
         averageLatency: parseFloat((1.1 + Math.random() * 0.7).toFixed(1)),

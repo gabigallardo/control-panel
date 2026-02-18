@@ -29,14 +29,22 @@ export const env = {
     // ── Servidor ──────────────────────────────────────────────────────
     PORT: parseInt(process.env.PORT || '3001', 10),
 
-    // ── OpenAI (aún no disponible — se usa Mock) ──────────────────────
+    // ── OpenAI ────────────────────────────────────────────────────────
+    // Admin API Key — necesaria para acceder a /v1/organization/costs y usage
+    // Se obtiene en: https://platform.openai.com/settings/organization/api-keys
+    OPENAI_ADMIN_KEY: process.env.OPENAI_ADMIN_KEY || '',
+    // Organization ID (opcional, pero recomendado)
+    OPENAI_ORG_ID: process.env.OPENAI_ORG_ID || '',
+    // API Key estándar (para uso general, no billing)
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
 } as const;
 
 // ── Log de estado ──────────────────────────────────────────────────────
 
 console.log('📋 Env cargado:');
-console.log(`   DATABASE_URL: ${env.DATABASE_URL ? '✅ Configurada' : '❌ No definida'}`);
-console.log(`   SUPABASE_URL: ${env.SUPABASE_URL ? '✅ Configurada' : '❌ No definida'}`);
-console.log(`   SERVICE_KEY:  ${env.SUPABASE_SERVICE_KEY ? '✅ Configurada' : '❌ No definida'}`);
-console.log(`   PORT:         ${env.PORT}`);
+console.log(`   DATABASE_URL:     ${env.DATABASE_URL ? '✅ Configurada' : '❌ No definida'}`);
+console.log(`   SUPABASE_URL:     ${env.SUPABASE_URL ? '✅ Configurada' : '❌ No definida'}`);
+console.log(`   SERVICE_KEY:      ${env.SUPABASE_SERVICE_KEY ? '✅ Configurada' : '❌ No definida'}`);
+console.log(`   OPENAI_ADMIN_KEY: ${env.OPENAI_ADMIN_KEY ? '✅ Configurada' : '⚠️  No definida (billing = mock)'}`);
+console.log(`   OPENAI_ORG_ID:    ${env.OPENAI_ORG_ID ? '✅ Configurada' : '⚠️  No definida'}`);
+console.log(`   PORT:             ${env.PORT}`);

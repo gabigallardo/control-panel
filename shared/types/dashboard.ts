@@ -14,6 +14,14 @@ export interface TokenDataPoint {
   cost: number;   // USD
 }
 
+export interface ModelUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;   // USD
+}
+
 export interface DashboardMetrics {
   uniqueUsers: number;
   queryVolume: number;
@@ -22,4 +30,12 @@ export interface DashboardMetrics {
   averageLatency: number;       // seconds
   agents: AgentStatus[];
   tokenHistory: TokenDataPoint[];
+  modelDistribution?: ModelUsage[];  // opcional — solo cuando hay datos reales
 }
+
+export interface OpenAiBillingData {
+  accumulatedCost: number;      // USD — gasto total en el rango
+  tokenHistory: TokenDataPoint[];
+  modelDistribution: ModelUsage[];
+}
+
