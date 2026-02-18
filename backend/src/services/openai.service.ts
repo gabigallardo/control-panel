@@ -20,6 +20,9 @@ function getHeaders(): Record<string, string> {
         'Authorization': `Bearer ${env.OPENAI_ADMIN_KEY}`,
         'Content-Type': 'application/json',
     };
+    if (env.OPENAI_ORG_ID) {
+        headers['OpenAI-Organization'] = env.OPENAI_ORG_ID;
+    }
     return headers;
 }
 
@@ -60,9 +63,11 @@ export async function getOpenAiCosts(
     const url = `${OPENAI_BASE}/costs?${params.toString()}`;
     console.log(`🔍 OpenAI Costs request: ${url}`);
 
-    const res = await fetch(url, { headers: getHeaders() });
+    const headers = getHeaders();
+    const res = await fetch(url, { headers });
     if (!res.ok) {
         const body = await res.text();
+        console.error(`❌ OpenAI Costs API error ${res.status}: ${body}`);
         throw new Error(`OpenAI Costs API error ${res.status}: ${body}`);
     }
     return res.json();
@@ -90,9 +95,11 @@ export async function getOpenAiCompletionsUsage(
     const url = `${OPENAI_BASE}/usage/completions?${params.toString()}`;
     console.log(`🔍 OpenAI Usage request: ${url}`);
 
-    const res = await fetch(url, { headers: getHeaders() });
+    const headers = getHeaders();
+    const res = await fetch(url, { headers });
     if (!res.ok) {
         const body = await res.text();
+        console.error(`❌ OpenAI Usage API error ${res.status}: ${body}`);
         throw new Error(`OpenAI Usage API error ${res.status}: ${body}`);
     }
     return res.json();
@@ -151,7 +158,7 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                 // Acumular por hora
                 const hour = new Date(bucket.start_time * 1000);
                 const hourKey = `${hour.getHours().toString().padStart(2, '0')}:00`;
-                
+
                 if (bucket.results) {
                     for (const result of bucket.results) {
                         const model = result.model ?? result.group?.model ?? 'unknown';
