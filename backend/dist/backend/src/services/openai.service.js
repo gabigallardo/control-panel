@@ -1,47 +1,45 @@
-import https from 'https';
-import { IncomingMessage } from 'http';
-import { env } from '../config/env';
-import type { TokenDataPoint, DateRangeKey, OpenAiBillingData, ModelUsage } from '@shared/types/dashboard';
-import type { DateRangeOption } from '@shared/types/dateRange';
-import { DATE_RANGE_OPTIONS } from '@shared/types/dateRange';
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getOpenAiCosts = getOpenAiCosts;
+exports.getOpenAiCompletionsUsage = getOpenAiCompletionsUsage;
+exports.getOpenAiBillingData = getOpenAiBillingData;
+const https_1 = __importDefault(require("https"));
+const env_1 = require("../config/env");
+const dateRange_1 = require("@shared/types/dateRange");
 // ── Config ─────────────────────────────────────────────────────────────
-
 const OPENAI_BASE = 'https://api.openai.com/v1/organization';
-
-function isOpenAiConfigured(): boolean {
-    return !!env.OPENAI_ADMIN_KEY;
+function isOpenAiConfigured() {
+    return !!env_1.env.OPENAI_ADMIN_KEY;
 }
-
-function getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-        'Authorization': `Bearer ${env.OPENAI_ADMIN_KEY}`,
+function getHeaders() {
+    const headers = {
+        'Authorization': `Bearer ${env_1.env.OPENAI_ADMIN_KEY}`,
         'Content-Type': 'application/json',
     };
-    if (env.OPENAI_ORG_ID) {
-        headers['OpenAI-Organization'] = env.OPENAI_ORG_ID;
+    if (env_1.env.OPENAI_ORG_ID) {
+        headers['OpenAI-Organization'] = env_1.env.OPENAI_ORG_ID;
     }
     return headers;
 }
-
 // ── Helpers ─────────────────────────────────────────────────────────────
-
-function getRangeStartUnix(range: DateRangeKey): number {
-    const opt = DATE_RANGE_OPTIONS.find((o: DateRangeOption) => o.key === range);
+function getRangeStartUnix(range) {
+    const opt = dateRange_1.DATE_RANGE_OPTIONS.find((o) => o.key === range);
     if (!opt || opt.minutes === 0) {
         // "all" → últimos 31 días (máximo para bucket_width=1d)
-        return Math.floor((Date.now() - 31 * 24 * 60 * 60_000) / 1000);
+        return Math.floor((Date.now() - 31 * 24 * 60 * 60000) / 1000);
     }
-    return Math.floor((Date.now() - opt.minutes * 60_000) / 1000);
+    return Math.floor((Date.now() - opt.minutes * 60000) / 1000);
 }
-
 /**
  * Selecciona bucket_width y limit apropiados según las restricciones de OpenAI:
  *   bucket_width=1m  → max limit 1440
  *   bucket_width=1h  → max limit 168
  *   bucket_width=1d  → max limit 31
  */
-function getBucketConfig(range: DateRangeKey): { bucketWidth: string; limit: number } {
+function getBucketConfig(range) {
     switch (range) {
         case '24h':
             return { bucketWidth: '1h', limit: 24 };
@@ -54,33 +52,24 @@ function getBucketConfig(range: DateRangeKey): { bucketWidth: string; limit: num
             return { bucketWidth: '1d', limit: 31 };
     }
 }
-
 // ── Custom Fetch IPv4 ──────────────────────────────────────────────────
-
 /**
  * Custom fetch implementation that forces IPv4 (family: 4).
  * Node.js v20+ on Windows has issues resolving IPv6 for some domains (like api.openai.com),
  * causing fetch to hang/timeout. This forces IPv4 usage.
  */
-async function fetchIPv4(url: string, options: { headers?: Record<string, string>; signal?: AbortSignal }): Promise<{
-    ok: boolean;
-    status: number;
-    text: () => Promise<string>;
-    json: () => Promise<any>;
-}> {
+async function fetchIPv4(url, options) {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
-
         const reqOptions = {
             hostname: urlObj.hostname,
             path: urlObj.pathname + urlObj.search,
             method: 'GET',
             headers: options.headers,
             family: 4, // ⚡ FORCE IPv4
-            timeout: 10_000, // 10s timeout
+            timeout: 10000, // 10s timeout
         };
-
-        const req = https.request(reqOptions, (res: IncomingMessage) => {
+        const req = https_1.default.request(reqOptions, (res) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
@@ -92,80 +81,28 @@ async function fetchIPv4(url: string, options: { headers?: Record<string, string
                 });
             });
         });
-
         req.on('error', (err) => reject(new Error(`IPv4 Fetch Error: ${err.message}`)));
-
         req.on('timeout', () => {
             req.destroy();
             reject(new Error('IPv4 Fetch Timeout (10s)'));
         });
-
         if (options.signal) {
             options.signal.addEventListener('abort', () => {
                 req.destroy();
                 reject(new Error('IPv4 Fetch Aborted'));
             });
         }
-
         req.end();
     });
 }
-
 // ═══════════════════════════════════════════════════════════════════════
 // API CALLS — OpenAI Organization Endpoints
 // ═══════════════════════════════════════════════════════════════════════
-
 /**
  * GET /v1/organization/costs
  * Devuelve el costo, opcionalmente agrupado por line_item/project_id.
  */
-export async function getOpenAiCosts(
-    startTime: number,
-    endTime: number,
-    bucketWidth: string,
-    limit: number,
-    groupBy?: string[],
-): Promise<any> {
-    // OpenAI Costs API solo soporta bucket_width='1d'
-    const finalBucketWidth = '1d';
-    const finalLimit = 31;
-
-    const params = new URLSearchParams();
-    params.set('start_time', startTime.toString());
-    params.set('end_time', endTime.toString());
-    params.set('bucket_width', finalBucketWidth);
-    params.set('limit', finalLimit.toString());
-    if (groupBy && groupBy.length > 0) {
-        groupBy.forEach((g) => params.append('group_by[]', g));
-    }
-
-    const url = `${OPENAI_BASE}/costs?${params.toString()}`;
-    console.log(`🔍 OpenAI Costs request: ${url}`);
-
-    const headers = getHeaders();
-
-    // Usar nuestro custom fetch IPv4
-    const res = await fetchIPv4(url, { headers });
-
-    if (!res.ok) {
-        const body = await res.text();
-        console.error(`❌ OpenAI Costs API error ${res.status}: ${body}`);
-        throw new Error(`OpenAI Costs API error ${res.status}: ${body}`);
-    }
-    return res.json();
-}
-
-/**
- * GET /v1/organization/usage/completions
- * Devuelve uso de tokens para completions, agrupado por modelo.
- */
-export async function getOpenAiCompletionsUsage(
-    startTime: number,
-    endTime: number,
-    bucketWidth: string,
-    limit: number,
-    groupBy?: string[],
-): Promise<any> {
+async function getOpenAiCosts(startTime, endTime, bucketWidth, limit, groupBy) {
     const params = new URLSearchParams();
     params.set('start_time', startTime.toString());
     params.set('end_time', endTime.toString());
@@ -174,15 +111,36 @@ export async function getOpenAiCompletionsUsage(
     if (groupBy && groupBy.length > 0) {
         groupBy.forEach((g) => params.append('group_by[]', g));
     }
-
-    const url = `${OPENAI_BASE}/usage/completions?${params.toString()}`;
-    console.log(`🔍 OpenAI Usage request: ${url}`);
-
+    const url = `${OPENAI_BASE}/costs?${params.toString()}`;
+    console.log(`🔍 OpenAI Costs request: ${url}`);
     const headers = getHeaders();
-
     // Usar nuestro custom fetch IPv4
     const res = await fetchIPv4(url, { headers });
-
+    if (!res.ok) {
+        const body = await res.text();
+        console.error(`❌ OpenAI Costs API error ${res.status}: ${body}`);
+        throw new Error(`OpenAI Costs API error ${res.status}: ${body}`);
+    }
+    return res.json();
+}
+/**
+ * GET /v1/organization/usage/completions
+ * Devuelve uso de tokens para completions, agrupado por modelo.
+ */
+async function getOpenAiCompletionsUsage(startTime, endTime, bucketWidth, limit, groupBy) {
+    const params = new URLSearchParams();
+    params.set('start_time', startTime.toString());
+    params.set('end_time', endTime.toString());
+    params.set('bucket_width', bucketWidth);
+    params.set('limit', limit.toString());
+    if (groupBy && groupBy.length > 0) {
+        groupBy.forEach((g) => params.append('group_by[]', g));
+    }
+    const url = `${OPENAI_BASE}/usage/completions?${params.toString()}`;
+    console.log(`🔍 OpenAI Usage request: ${url}`);
+    const headers = getHeaders();
+    // Usar nuestro custom fetch IPv4
+    const res = await fetchIPv4(url, { headers });
     if (!res.ok) {
         const body = await res.text();
         console.error(`❌ OpenAI Usage API error ${res.status}: ${body}`);
@@ -190,39 +148,32 @@ export async function getOpenAiCompletionsUsage(
     }
     return res.json();
 }
-
 // ═══════════════════════════════════════════════════════════════════════
 // HIGH-LEVEL — Billing Data para el Dashboard
 // ═══════════════════════════════════════════════════════════════════════
-
 /**
  * Obtiene datos de billing reales de OpenAI.
  * Si la Admin Key no está configurada, devuelve null (para que el caller
  * use mock data como fallback).
  */
-export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiBillingData | null> {
+async function getOpenAiBillingData(range) {
     if (!isOpenAiConfigured()) {
         console.log('⚠️  OPENAI_ADMIN_KEY no configurada — usando datos Mock para billing');
         return null;
     }
-
     try {
         const startTime = getRangeStartUnix(range);
         const endTime = Math.floor(Date.now() / 1000);
         const { bucketWidth, limit } = getBucketConfig(range);
-
         console.log(`📡 OpenAI query: range=${range}, bucket=${bucketWidth}, limit=${limit}`);
-
         // Ejecutar ambas consultas en paralelo
         const [costsResponse, usageResponse] = await Promise.all([
             getOpenAiCosts(startTime, endTime, bucketWidth, limit, ['line_item']),
             getOpenAiCompletionsUsage(startTime, endTime, bucketWidth, limit, ['model']),
         ]);
-
         // ── Procesar costos acumulados ──
         let accumulatedCost = 0;
-        const dailyCosts: { date: string; cost: number }[] = [];
-
+        const dailyCosts = [];
         if (costsResponse?.data) {
             for (const bucket of costsResponse.data) {
                 let bucketCost = 0;
@@ -237,24 +188,20 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                 dailyCosts.push({ date, cost: bucketCost });
             }
         }
-
         // ── Procesar uso de tokens por modelo ──
-        const modelMap = new Map<string, ModelUsage>();
-        const hourlyTokens = new Map<string, number>();
-
+        const modelMap = new Map();
+        const hourlyTokens = new Map();
         if (usageResponse?.data) {
             for (const bucket of usageResponse.data) {
                 // Acumular por hora
                 const hour = new Date(bucket.start_time * 1000);
                 const hourKey = `${hour.getHours().toString().padStart(2, '0')}:00`;
-
                 if (bucket.results) {
                     for (const result of bucket.results) {
                         const model = result.model ?? result.group?.model ?? 'unknown';
                         const inputTokens = result.input_tokens ?? 0;
                         const outputTokens = result.output_tokens ?? 0;
                         const totalTokens = inputTokens + outputTokens;
-
                         // Agregar al mapa por modelo
                         const existing = modelMap.get(model) || {
                             model,
@@ -267,16 +214,14 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                         existing.outputTokens += outputTokens;
                         existing.totalTokens += totalTokens;
                         modelMap.set(model, existing);
-
                         // Agregar al mapa horario
                         hourlyTokens.set(hourKey, (hourlyTokens.get(hourKey) || 0) + totalTokens);
                     }
                 }
             }
         }
-
         // ── Construir tokenHistory (24 horas) ──
-        const tokenHistory: TokenDataPoint[] = [];
+        const tokenHistory = [];
         for (let h = 0; h < 24; h++) {
             const hourKey = `${h.toString().padStart(2, '0')}:00`;
             const tokens = hourlyTokens.get(hourKey) || 0;
@@ -284,20 +229,16 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
             const cost = parseFloat((tokens * 0.000003).toFixed(4));
             tokenHistory.push({ hour: hourKey, tokens, cost });
         }
-
         // ── Model distribution ──
-        const modelDistribution: ModelUsage[] = Array.from(modelMap.values()).sort(
-            (a, b) => b.totalTokens - a.totalTokens,
-        );
-
+        const modelDistribution = Array.from(modelMap.values()).sort((a, b) => b.totalTokens - a.totalTokens);
         console.log(`✅ OpenAI Billing: costo=$${accumulatedCost.toFixed(2)}, modelos=${modelDistribution.length}`);
-
         return {
             accumulatedCost: parseFloat(accumulatedCost.toFixed(2)),
             tokenHistory,
             modelDistribution,
         };
-    } catch (err: unknown) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('❌ OpenAI Billing error:', msg);
         return null; // Fallback a mock
