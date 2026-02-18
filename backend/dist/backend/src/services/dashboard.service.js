@@ -186,7 +186,7 @@ async function getTokenHistory(range) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('❌ getTokenHistory real error, using mock:', msg);
     }
-    return getMockTokenHistory();
+    return;
 }
 /**
  * Obtiene costo acumulado y latencia. Intenta datos reales de OpenAI primero.
@@ -206,52 +206,5 @@ async function getCostAndLatency(range) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('❌ getCostAndLatency real error, using mock:', msg);
     }
-    return getMockCostAndLatency();
-}
-// ── Mock helpers ────────────────────────────────────────────────────────
-function getMockTokenHistory() {
-    const points = [];
-    let base = 800;
-    for (let h = 0; h < 24; h++) {
-        const multiplier = h >= 9 && h <= 18 ? 2.5 : 1;
-        const noise = (Math.random() - 0.3) * 400;
-        const tokens = Math.max(100, Math.round((base + noise) * multiplier));
-        const cost = parseFloat((tokens * 0.0015).toFixed(2));
-        base += (Math.random() - 0.4) * 100;
-        points.push({
-            hour: `${h.toString().padStart(2, '0')}:00`,
-            tokens,
-            cost,
-        });
-    }
-    return points;
-}
-function getMockCostAndLatency() {
-    return {
-        accumulatedCost: parseFloat((3800 + Math.random() * 800).toFixed(2)),
-        averageLatency: parseFloat((1.1 + Math.random() * 0.7).toFixed(1)),
-    };
-}
-// ═══════════════════════════════════════════════════════════════════════
-// MOCK FALLBACKS — Se usan cuando la DB no está configurada o falla
-// ═══════════════════════════════════════════════════════════════════════
-function mockUniqueUsers(range) {
-    const map = { '24h': 1245, '7d': 5830, '30d': 18200, all: 42500 };
-    return map[range] ?? 1245;
-}
-function mockQueryVolume(range) {
-    const map = { '24h': 389, '7d': 2450, '30d': 9870, all: 34500 };
-    return map[range] ?? 389;
-}
-function mockNonConflictRate() {
-    return 94;
-}
-function mockAgentHealth() {
-    const now = new Date().toISOString();
-    return [
-        { name: 'Router', status: 'OPERATIVO', lastActivity: now },
-        { name: 'Admisor', status: 'OPERATIVO', lastActivity: now },
-        { name: 'Informador', status: 'OPERATIVO', lastActivity: now },
-        { name: 'Derivador', status: 'OPERATIVO', lastActivity: now },
-    ];
+    return;
 }

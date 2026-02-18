@@ -21,8 +21,8 @@ async function getDashboardMetrics(req, res) {
             (0, openai_service_1.getOpenAiBillingData)(range), // Una sola llamada a OpenAI
         ]);
         // Si billing es null (no configurado o error), usar mock defaults
-        const tokenHistory = billing?.tokenHistory ?? getMockTokenHistory();
-        const accumulatedCost = billing?.accumulatedCost ?? parseFloat((3800 + Math.random() * 800).toFixed(2));
+        const tokenHistory = billing?.tokenHistory;
+        const accumulatedCost = billing?.accumulatedCost;
         const averageLatency = parseFloat((1.1 + Math.random() * 0.7).toFixed(1));
         const modelDistribution = billing?.modelDistribution;
         const metrics = {
@@ -47,16 +47,4 @@ async function getDashboardMetrics(req, res) {
     }
 }
 // ── Mock fallback inline ────────────────────────────────────────────────
-function getMockTokenHistory() {
-    const points = [];
-    let base = 800;
-    for (let h = 0; h < 24; h++) {
-        const multiplier = h >= 9 && h <= 18 ? 2.5 : 1;
-        const noise = (Math.random() - 0.3) * 400;
-        const tokens = Math.max(100, Math.round((base + noise) * multiplier));
-        const cost = parseFloat((tokens * 0.0015).toFixed(2));
-        base += (Math.random() - 0.4) * 100;
-        points.push({ hour: `${h.toString().padStart(2, '0')}:00`, tokens, cost });
-    }
-    return points;
-}
+
