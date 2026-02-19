@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardMetrics = getDashboardMetrics;
 const dashboard_service_1 = require("../services/dashboard.service");
 const openai_service_1 = require("../services/openai.service");
-const VALID_RANGES = ['24h', '7d', '30d', 'all'];
+const VALID_RANGES: DateRangeKey[] = ['24h', '7d', '30d', '12m'];
 async function getDashboardMetrics(req, res) {
     try {
         const rangeParam = req.query.range || '24h';

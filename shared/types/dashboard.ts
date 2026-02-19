@@ -1,6 +1,6 @@
 // ─── Shared Types: Dashboard ───────────────────────────────────────────
 
-export type DateRangeKey = '24h' | '7d' | '30d' | 'all';
+export type DateRangeKey = '24h' | '7d' | '30d' | '12m';
 
 export interface AgentStatus {
   name: string;

@@ -234,7 +234,94 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
         return null;
     }
 
-    try {
+  try {
+        // ── LÓGICA ESPECIAL PARA EL GRÁFICO ANUAL (12m) ──
+        if (range === '12m') {
+            const tokenHistory: TokenDataPoint[] = [];
+            const modelMap = new Map<string, ModelUsage>();
+            let totalAccumulatedCost = 0;
+
+            const monthPromises = [];
+            const monthLabels = [];
+
+            // Generar los últimos 12 meses
+            for (let i = 11; i >= 0; i--) {
+                const d = new Date();
+                d.setMonth(d.getMonth() - i);
+                const year = d.getFullYear();
+                const month = d.getMonth();
+
+                const start = new Date(year, month, 1);
+                const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+                const finalEnd = end.getTime() > Date.now() ? new Date() : end;
+
+                const startTime = Math.floor(start.getTime() / 1000);
+                const endTime = Math.floor(finalEnd.getTime() / 1000);
+
+                const label = start.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
+                monthLabels.push(label.charAt(0).toUpperCase() + label.slice(1)); // Ej: "Mar 2025"
+
+                // Pedimos el uso de cada mes a OpenAI en paralelo (Respetando su límite de 31 días)
+                monthPromises.push(
+                    getOpenAiCompletionsUsage(startTime, endTime, '1d', 31, ['model'])
+                        .catch(e => {
+                            console.error(`Error en mes ${label}:`, e.message);
+                            return null;
+                        })
+                );
+            }
+
+            const usageResponses = await Promise.all(monthPromises);
+
+            // Procesamos las 12 respuestas
+            for (let i = 0; i < 12; i++) {
+                const usageResponse = usageResponses[i];
+                let monthTokens = 0;
+                let monthCost = 0;
+
+                if (usageResponse?.data) {
+                    for (const bucket of usageResponse.data) {
+                        if (bucket.results) {
+                            for (const res of bucket.results) {
+                                const inputTokens = res.input_tokens ?? 0;
+                                const outputTokens = res.output_tokens ?? 0;
+                                const totalTokens = inputTokens + outputTokens;
+
+                                monthTokens += totalTokens;
+
+                                const model = res.model ?? res.group?.model ?? 'unknown';
+                                const price = MODEL_PRICES[model] || MODEL_PRICES[model.replace(/-20\d{2}-\d{2}-\d{2}$/, '')] || DEFAULT_PRICE;
+                                const cost = (inputTokens / 1_000_000 * price.input) + (outputTokens / 1_000_000 * price.output);
+
+                                monthCost += cost;
+
+                                const existing = modelMap.get(model) || { model, inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0 };
+                                existing.inputTokens += inputTokens;
+                                existing.outputTokens += outputTokens;
+                                existing.totalTokens += totalTokens;
+                                existing.cost += cost;
+                                modelMap.set(model, existing);
+                            }
+                        }
+                    }
+                }
+
+                totalAccumulatedCost += monthCost;
+                tokenHistory.push({
+                    hour: monthLabels[i], // Pasamos el nombre del mes como eje X
+                    tokens: monthTokens,
+                    cost: parseFloat(monthCost.toFixed(4))
+                });
+            }
+
+            const modelDistribution: ModelUsage[] = Array.from(modelMap.values()).sort((a, b) => b.totalTokens - a.totalTokens);
+
+            return {
+                accumulatedCost: parseFloat(totalAccumulatedCost.toFixed(4)),
+                tokenHistory,
+                modelDistribution,
+            };
+        }
         const startTime = getRangeStartUnix(range);
         const endTime = Math.floor(Date.now() / 1000);
         const { bucketWidth, limit } = getBucketConfig(range);

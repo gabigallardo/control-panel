@@ -30,8 +30,10 @@ export default function Dashboard() {
         loadData();
     }, [loadData]);
 
-    const dropdownOptions = DATE_RANGE_OPTIONS.map((o) => ({ key: o.key, label: o.label }));
 
+
+        
+const dropdownOptions = DATE_RANGE_OPTIONS.map((o) => ({ key: o.key, label: o.label }));
     return (
         <div className="flex-1 overflow-y-auto p-6 lg:p-8 bg-grid-pattern">
             {/* Header */}
@@ -155,34 +157,51 @@ export default function Dashboard() {
                                 </div>
                             </motion.div>
 
-                            {/* Model Distribution */}
+                            {/* Desglose de Uso (Actions/Tokens) */}
                             <motion.div
                                 initial={{ opacity: 0, y: 24 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.5, delay: 0.55 }}
-                                className="glass-card p-6"
+                                className="glass-card p-6 flex flex-col justify-center"
                             >
-                                <p className="text-sm text-panel-300 font-medium mb-4">Distribución por Modelo</p>
-                                <div className="flex items-end gap-8 h-20">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <motion.div
-                                            className="w-16 bg-gradient-to-t from-leaf-500 to-leaf-400 rounded-md"
-                                            initial={{ height: 0 }}
-                                            animate={{ height: 60 }}
-                                            transition={{ duration: 0.8, delay: 0.7, ease: [0.25, 0.46, 0.45, 0.94] }}
-                                        />
-                                        <span className="text-xs text-panel-300">GPT-4o</span>
+                                <p className="text-sm text-panel-300 font-medium mb-4">Desglose de Uso</p>
+                                
+                                {metrics.modelDistribution && metrics.modelDistribution.length > 0 ? (
+                                    <div className="flex justify-between items-center mt-2">
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-2xl font-bold text-cream-100">{metrics.queryVolume}</span>
+                                            <span className="text-[11px] text-panel-400 mt-1 uppercase tracking-wider">Requests</span>
+                                        </div>
+                                        <div className="w-px h-10 bg-panel-500/50"></div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-2xl font-bold text-cream-100">
+                                                {(() => {
+                                                    const totalInput = metrics.modelDistribution.reduce((acc, m) => acc + m.inputTokens, 0);
+                                                    return totalInput >= 1000000 
+                                                        ? (totalInput / 1000000).toFixed(2) + 'M' 
+                                                        : (totalInput / 1000).toFixed(1) + 'k';
+                                                })()}
+                                            </span>
+                                            <span className="text-[11px] text-panel-400 mt-1 uppercase tracking-wider">Input Tokens</span>
+                                        </div>
+                                        <div className="w-px h-10 bg-panel-500/50"></div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-2xl font-bold text-cream-100">
+                                                {(() => {
+                                                    const totalOutput = metrics.modelDistribution.reduce((acc, m) => acc + m.outputTokens, 0);
+                                                    return totalOutput >= 1000000 
+                                                        ? (totalOutput / 1000000).toFixed(2) + 'M' 
+                                                        : (totalOutput / 1000).toFixed(1) + 'k';
+                                                })()}
+                                            </span>
+                                            <span className="text-[11px] text-panel-400 mt-1 uppercase tracking-wider">Output Tokens</span>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-col items-center gap-2">
-                                        <motion.div
-                                            className="w-16 bg-gradient-to-t from-leaf-300/50 to-leaf-200/40 rounded-md"
-                                            initial={{ height: 0 }}
-                                            animate={{ height: 35 }}
-                                            transition={{ duration: 0.8, delay: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
-                                        />
-                                        <span className="text-xs text-panel-300">GPT-4o-mini</span>
+                                ) : (
+                                    <div className="flex h-12 items-center justify-center">
+                                        <p className="text-xs text-panel-400">No hay datos de tokens disponibles.</p>
                                     </div>
-                                </div>
+                                )}
                             </motion.div>
                         </div>
                     </motion.div>
