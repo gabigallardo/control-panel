@@ -42,14 +42,14 @@ function getRangeStartUnix(range) {
 function getBucketConfig(range) {
     switch (range) {
         case '24h':
-            return { bucketWidth: '1h', limit: 24 };
+            return { bucketWidth: '1h', limit: 25 };
         case '7d':
-            return { bucketWidth: '1d', limit: 7 };
+            return { bucketWidth: '1d', limit: 8 };
         case '30d':
-            return { bucketWidth: '1d', limit: 31 };
+            return { bucketWidth: '1d', limit: 32 };
         case 'all':
         default:
-            return { bucketWidth: '1d', limit: 31 };
+            return { bucketWidth: '1d', limit: 92 };
     }
 }
 // ── Custom Fetch IPv4 ──────────────────────────────────────────────────

@@ -54,14 +54,16 @@ function getHeaders(): Record<string, string> {
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 function getRangeStartUnix(range: DateRangeKey): number {
+    if (range === 'all' || range === '30d') {
+        // Límite estricto de OpenAI: no podemos pedir más de 31 días juntos.
+        return Math.floor((Date.now() - 30 * 24 * 60 * 60_000) / 1000);
+    }
     const opt = DATE_RANGE_OPTIONS.find((o: DateRangeOption) => o.key === range);
     if (!opt || opt.minutes === 0) {
-        // "all" → últimos 90 días (maximo razonable para una visualización diaria)
-        return Math.floor((Date.now() - 90 * 24 * 60 * 60_000) / 1000);
+        return Math.floor((Date.now() - 30 * 24 * 60 * 60_000) / 1000);
     }
     return Math.floor((Date.now() - opt.minutes * 60_000) / 1000);
 }
-
 /**
  * Selecciona bucket_width y limit apropiados según las restricciones de OpenAI:
  *   bucket_width=1m  → max limit 1440
@@ -71,14 +73,13 @@ function getRangeStartUnix(range: DateRangeKey): number {
 function getBucketConfig(range: DateRangeKey): { bucketWidth: string; limit: number } {
     switch (range) {
         case '24h':
-            return { bucketWidth: '1h', limit: 24 };
+            return { bucketWidth: '1h', limit: 26 };
         case '7d':
-            return { bucketWidth: '1d', limit: 7 };
+            return { bucketWidth: '1d', limit: 9 };
         case '30d':
-            return { bucketWidth: '1d', limit: 31 };
         case 'all':
         default:
-            return { bucketWidth: '1d', limit: 91 };
+            return { bucketWidth: '1d', limit: 31 };
     }
 }
 
@@ -161,7 +162,7 @@ export async function getOpenAiCosts(
     params.set('start_time', startTime.toString());
     params.set('end_time', endTime.toString());
     params.set('bucket_width', finalBucketWidth);
-    params.set('limit', finalLimit.toString());
+    params.set('limit', limit.toString());
     if (groupBy && groupBy.length > 0) {
         groupBy.forEach((g) => params.append('group_by[]', g));
     }
@@ -311,58 +312,66 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
             }
         }
 
-        // ── Procesar uso de tokens (Hourly vs Daily) ──
+      // ── Procesar uso de tokens (Hourly vs Daily) ──
         const tokenHistory: TokenDataPoint[] = [];
 
-        if (range === '24h') {
-            // Lógica para 24h: Usar costos calculados basados en modelos
-            for (let h = 0; h < 24; h++) {
-                const hourKey = `${h.toString().padStart(2, '0')}:00`;
+if (range === '24h') {
+            const endHour = new Date();
+            for (let i = 23; i >= 0; i--) {
+                const d = new Date(endHour.getTime() - i * 60 * 60 * 1000);
+                const hourKey = `${d.getHours().toString().padStart(2, '0')}:00`;
+                
                 const tokens = hourlyTokens.get(hourKey) || 0;
-                // Usar costo calculado si existe, sino 0
                 const cost = parseFloat((hourlyCalculatedCosts.get(hourKey) || 0).toFixed(6));
+                
                 tokenHistory.push({ hour: hourKey, tokens, cost });
             }
         } else {
             // Lógica para rangos DIARIOS (7d, 30d, all)
-            // OpenAI devuelve 'usageResponse' con bucket_width=1d, grouped by model.
-            // Necesitamos agrupar por DÍA.
-
             const dailyTokens = new Map<string, number>();
+            const dailyCalculatedCosts = new Map<string, number>();
 
             if (usageResponse?.data) {
                 for (const bucket of usageResponse.data) {
-                    const date = new Date(bucket.start_time * 1000).toISOString().split('T')[0]; // YYYY-MM-DD
+                    const date = new Date(bucket.start_time * 1000).toISOString().split('T')[0];
 
                     let totalBucketTokens = 0;
+                    let bucketCalculatedCost = 0;
+
                     if (bucket.results) {
                         for (const res of bucket.results) {
-                            totalBucketTokens += (res.input_tokens ?? 0) + (res.output_tokens ?? 0);
+                            const inputTokens = res.input_tokens ?? 0;
+                            const outputTokens = res.output_tokens ?? 0;
+                            totalBucketTokens += inputTokens + outputTokens;
+
+                            const model = res.model ?? res.group?.model ?? 'unknown';
+                            const price = MODEL_PRICES[model] || MODEL_PRICES[model.replace(/-20\d{2}-\d{2}-\d{2}$/, '')] || DEFAULT_PRICE;
+                            bucketCalculatedCost += (inputTokens / 1_000_000 * price.input) + (outputTokens / 1_000_000 * price.output);
                         }
                     }
                     dailyTokens.set(date, (dailyTokens.get(date) || 0) + totalBucketTokens);
+                    dailyCalculatedCosts.set(date, (dailyCalculatedCosts.get(date) || 0) + bucketCalculatedCost);
                 }
             }
 
-            // Generar array de fechas para el eje X
             const start = new Date(startTime * 1000);
             const end = new Date(endTime * 1000);
+            end.setHours(23, 59, 59, 999);
 
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
                 const isoDate = d.toISOString().split('T')[0];
-                const dayLabel = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`; // DD/MM
+                const dayLabel = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 
                 const tokens = dailyTokens.get(isoDate) || 0;
-
-                // Buscar costo real de manera segura
                 const dailyCostEntry = dailyCosts.find(c => c.date === isoDate);
-                // Si existe entrada pero cost es 0, queremos usar 0, no el fallback.
+                
                 let realCost = (dailyCostEntry && typeof dailyCostEntry.cost === 'number')
                     ? dailyCostEntry.cost
-                    : 0; // Si no hay dato de costo real, asumimos 0 por ahora (o podríamos sumar costos estimados models)
+                    : 0;
 
-                // Si costo real es 0 pero hay tokens, intentar usar estimado models (opcional, pero consistente con 24h)
-                // Para simplificar, en vista diaria preferimos el costo 'real' de la API de costos si está disponible.
+                if (realCost === 0) {
+                    realCost = dailyCalculatedCosts.get(isoDate) || 0;
+                }
 
                 tokenHistory.push({
                     hour: dayLabel,
@@ -371,8 +380,7 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
                 });
             }
         }
-
-        // ── Model distribution ──
+                       // ── Model distribution ──
         const modelDistribution: ModelUsage[] = Array.from(modelMap.values()).sort(
             (a, b) => b.totalTokens - a.totalTokens,
         );
@@ -380,10 +388,18 @@ export async function getOpenAiBillingData(range: DateRangeKey): Promise<OpenAiB
         // ── Recalcular accumulatedCost basado en tokenHistory ──
         const totalCalculatedCost = tokenHistory.reduce((acc, curr) => acc + curr.cost, 0);
 
-        // Si el costo de la API es 0 (o mucho menor al calculado), usar el calculado.
-        const finalAccumulatedCost = (accumulatedCost === 0 || totalCalculatedCost > accumulatedCost)
-            ? totalCalculatedCost
-            : accumulatedCost;
+        let finalAccumulatedCost = 0;
+        
+        if (range === '24h') {
+            // Para 24h confiamos 100% en el cálculo por horas. 
+            // La API de Costos oficial contamina el número porque trae el día de ayer completo.
+            finalAccumulatedCost = totalCalculatedCost;
+        } else {
+            // Para 7d, 30d y all, seguimos usando la lógica normal
+            finalAccumulatedCost = (accumulatedCost === 0 || totalCalculatedCost > accumulatedCost)
+                ? totalCalculatedCost
+                : accumulatedCost;
+        }
 
         console.log(`✅ OpenAI Billing: costoAPI=$${accumulatedCost.toFixed(4)}, costoCalc=$${totalCalculatedCost.toFixed(4)}, final=$${finalAccumulatedCost.toFixed(4)}`);
 
